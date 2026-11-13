@@ -1,7 +1,10 @@
 import logging
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 
 from app import __version__
 from app.config import get_settings
@@ -9,6 +12,8 @@ from app.database import Base, engine
 from app.routers import auth, documents, query
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 @asynccontextmanager
@@ -28,6 +33,11 @@ app = FastAPI(
 app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(query.router)
+
+
+@app.get("/", include_in_schema=False)
+def web_ui() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.get("/health", tags=["health"])

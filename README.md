@@ -11,6 +11,10 @@ It uses **retrieval-augmented generation (RAG)**: the API finds the passages tha
 question with BM25 ranking, then asks Claude to answer using only those passages. Without an API
 key it still works offline and returns the best-matching sentences instead.
 
+![Demo: sign up, upload a PDF, ask questions and get cited answers](docs/demo.gif)
+
+*Demo recorded without an API key, so answers are extractive. With `ANTHROPIC_API_KEY` set, Claude writes the answer from the same passages.*
+
 ## Features
 
 - **JWT authentication**: register, log in, and every document is private to its owner
@@ -19,7 +23,8 @@ key it still works offline and returns the best-matching sentences instead.
 - **Grounded answers**: Claude answers only from the retrieved passages and cites them as `[1]`, `[2]`
 - **Graceful fallback**: if the LLM is missing, rate-limited or declines, the API returns an extractive answer
 - **Query history**: each question, answer, mode and latency is logged per user
-- **Production setup**: SQLAlchemy 2.0 (SQLite or PostgreSQL), Docker Compose, GitHub Actions CI, 20 pytest tests
+- **Web UI**: a single-page interface at `/` to sign in, upload documents and ask questions
+- **Production setup**: SQLAlchemy 2.0 (SQLite or PostgreSQL), Docker Compose, GitHub Actions CI, 21 pytest tests
 
 ## Architecture
 
@@ -42,6 +47,7 @@ app/
 ├── security.py        # bcrypt hashing, JWT create/verify
 ├── deps.py            # current-user dependency
 ├── routers/           # auth, documents, query
+├── static/index.html  # web UI served at /
 └── services/
     ├── extract.py     # PDF / text extraction
     ├── chunker.py     # overlapping word windows
@@ -61,7 +67,9 @@ cp .env.example .env             # add ANTHROPIC_API_KEY for LLM answers (option
 uvicorn app.main:app --reload
 ```
 
-Open http://localhost:8000/docs for the interactive Swagger UI.
+Open http://localhost:8000/ for the web UI, or http://localhost:8000/docs for the interactive Swagger UI.
+A sample document to try is in [`samples/employee-handbook.pdf`](samples/employee-handbook.pdf)
+(a fictional company handbook). Ask, for example, "How many days of sick leave do employees get?"
 
 **With Docker (PostgreSQL):**
 

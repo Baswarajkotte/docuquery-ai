@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DocuQuery AI</title>
+  <style>
+    :root { --bg:#f6f7f9; --card:#fff; --text:#1d2433; --muted:#667085; --accent:#2563eb; --line:#e4e7ec; --ok:#067647; --bad:#b42318; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:14px 24px; background:var(--card); border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
+    header h1 { font-size:18px; margin:0 auto 0 0; }
+    header span { color:var(--muted); font-size:14px; }
+    main { max-width:1100px; margin:0 auto; padding:24px; display:grid; gap:16px; grid-template-columns: 320px 1fr; }
+    @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+    .card h2 { font-size:13px; margin:0 0 12px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+    input, textarea, button { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:#fff; width:100%; }
+    textarea { resize:vertical; min-height:70px; }
+    button { background:var(--accent); color:#fff; border-color:var(--accent); cursor:pointer; width:auto; }
+    button.secondary { background:#fff; color:var(--text); border-color:var(--line); }
+    button:disabled { opacity:.6; cursor:wait; }
+    .row { display:flex; gap:8px; margin-top:8px; }
+    .stack > * + * { margin-top:8px; }
+    #auth { max-width:380px; margin:60px auto; }
+    .docs { list-style:none; padding:0; margin:12px 0 0; }
+    .docs li { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:8px 0; border-top:1px solid var(--line); font-size:14px; }
+    .docs small { color:var(--muted); display:block; }
+    .docs button { padding:2px 8px; font-size:12px; }
+    .answer { white-space:pre-wrap; line-height:1.5; font-size:15px; }
+    .badge { display:inline-block; font-size:12px; padding:2px 8px; border-radius:99px; background:#eef4ff; color:var(--accent); margin-right:6px; }
+    .source { border-left:3px solid var(--accent); padding:6px 10px; margin-top:10px; background:#fafbfc; font-size:13px; }
+    .source b { display:block; margin-bottom:2px; }
+    .muted { color:var(--muted); font-size:13px; }
+    .error { color:var(--bad); font-size:13px; min-height:1em; }
+    [hidden] { display:none !important; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>DocuQuery AI</h1>
+    <span id="who"></span>
+    <button id="logout" class="secondary" hidden>Log out</button>
+  </header>
+
+  <section id="auth" class="card stack">
+    <h2>Sign in</h2>
+    <input id="email" type="email" placeholder="Email" autocomplete="username">
+    <input id="password" type="password" placeholder="Password (8+ characters)" autocomplete="current-password">
+    <div class="row">
+      <button id="login">Log in</button>
+      <button id="register" class="secondary">Create account</button>
+    </div>
+    <p id="auth-error" class="error"></p>
+  </section>
+
+  <main id="app" hidden>
+    <section class="card">
+      <h2>Your documents</h2>
+      <input id="file" type="file" accept=".pdf,.txt,.md">
+      <div class="row"><button id="upload">Upload</button></div>
+      <p id="upload-msg" class="muted"></p>
+      <ul id="docs" class="docs"></ul>
+    </section>
+    <section class="card stack">
+      <h2>Ask a question</h2>
+      <textarea id="question" placeholder="e.g. How many days of sick leave do employees get?"></textarea>
+      <div class="row"><button id="ask">Ask</button></div>
+      <p id="ask-error" class="error"></p>
+      <div id="result" hidden>
+        <div><span id="mode" class="badge"></span><span id="latency" class="muted"></span></div>
+        <p id="answer" class="answer"></p>
+        <div id="sources"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let token = null;
+    try { token = sessionStorage.getItem("dq-token"); } catch (e) {}
+
+    async function api(path, options = {}) {
+      const headers = Object.assign({}, options.headers, token ? { Authorization: `Bearer ${token}` } : {});
+      const res = await fetch(path, Object.assign({}, options, { headers }));
+      if (res.status === 401 && token) { logout(); throw new Error("Session expired, log in again"); }
+      if (!res.ok) {
+        let detail = res.statusText;
+        try { const body = await res.json(); detail = typeof body.detail === "string" ? body.detail : body.detail[0].msg; } catch (e) {}
+        throw new Error(detail);
+      }
+      return res.status === 204 ? null : res.json();
+    }
+    const escape = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+    async function login() {
+      $("auth-error").textContent = "";
+      const form = new URLSearchParams({ username: $("email").value, password: $("password").value });
+      try {
+        const data = await api("/auth/login", { method: "POST", body: form });
+        token = data.access_token;
+        try { sessionStorage.setItem("dq-token", token); } catch (e) {}
+        await showApp();
+      } catch (err) { $("auth-error").textContent = err.message; }
+    }
+    async function register() {
+      $("auth-error").textContent = "";
+      try {
+        await api("/auth/register", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: $("email").value, password: $("password").value }),
+        });
+        await login();
+      } catch (err) { $("auth-error").textContent = err.message; }
+    }
+    function logout() {
+      token = null;
+      try { sessionStorage.removeItem("dq-token"); } catch (e) {}
+      $("app").hidden = true; $("auth").hidden = false; $("logout").hidden = true; $("who").textContent = "";
+    }
+    async function showApp() {
+      const me = await api("/auth/me");
+      $("who").textContent = me.email;
+      $("auth").hidden = true; $("app").hidden = false; $("logout").hidden = false;
+      await loadDocs();
+    }
+    async function loadDocs() {
+      const docs = await api("/documents");
+      $("docs").innerHTML = docs.map((d) => `<li><div>${escape(d.filename)}<small>${d.pages} page(s) · ${d.word_count} words · ${d.chunk_count} chunks</small></div><button class="secondary" data-id="${d.id}">Delete</button></li>`).join("")
+        || `<li class="muted">No documents yet. Upload a PDF or text file.</li>`;
+    }
+    async function upload() {
+      const file = $("file").files[0];
+      if (!file) { $("upload-msg").textContent = "Choose a file first."; return; }
+      $("upload").disabled = true; $("upload-msg").textContent = "Uploading…";
+      const body = new FormData(); body.append("file", file);
+      try {
+        const doc = await api("/documents", { method: "POST", body });
+        $("upload-msg").textContent = `Added ${doc.filename}: ${doc.chunk_count} chunks indexed.`;
+        $("file").value = "";
+        await loadDocs();
+      } catch (err) { $("upload-msg").textContent = err.message; }
+      $("upload").disabled = false;
+    }
+    async function ask() {
+      $("ask-error").textContent = ""; $("ask").disabled = true; $("ask").textContent = "Thinking…";
+      try {
+        const r = await api("/query", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: $("question").value }),
+        });
+        $("mode").textContent = r.mode === "llm" ? "Answered by Claude" : "Extractive answer";
+        $("latency").textContent = `${r.latency_ms} ms`;
+        $("answer").textContent = r.answer;
+        $("sources").innerHTML = r.sources.map((s, i) => `<div class="source"><b>[${i + 1}] ${escape(s.filename)}, page ${s.page} · score ${s.score}</b>${escape(s.excerpt)}…</div>`).join("");
+        $("result").hidden = false;
+      } catch (err) { $("ask-error").textContent = err.message; }
+      $("ask").disabled = false; $("ask").textContent = "Ask";
+    }
+
+    $("login").addEventListener("click", login);
+    $("register").addEventListener("click", register);
+    $("logout").addEventListener("click", logout);
+    $("upload").addEventListener("click", upload);
+    $("ask").addEventListener("click", ask);
+    $("question").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ask(); });
+    $("docs").addEventListener("click", async (e) => {
+      const id = e.target.dataset.id;
+      if (id) { await api(`/documents/${id}`, { method: "DELETE" }); await loadDocs(); }
+    });
+    if (token) showApp().catch(logout);
+  </script>
+</body>
+</html>

@@ -33,3 +33,9 @@ def test_protected_routes_need_token(client):
 def test_short_password_rejected(client):
     res = client.post("/auth/register", json={"email": "s@example.com", "password": "short"})
     assert res.status_code == 422
+
+
+def test_web_ui_is_served(client):
+    res = client.get("/")
+    assert res.status_code == 200
+    assert "DocuQuery AI" in res.text
